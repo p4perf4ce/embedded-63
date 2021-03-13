@@ -1,0 +1,14 @@
+{
+    "python.analysis.completeFunctionParens": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.pythonPath": "/home/stupidbot/miniconda3/envs/embed/bin/python",
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "emb",
+            "database": "db.sqlite3"
+        }
+    ],
+    "sqltools.useNodeRuntime": true
+}
