@@ -22,7 +22,7 @@ class Book(models.Model):
     title = models.CharField(max_length=255)
     publisher = models.CharField(max_length=255)
     language = models.CharField(max_length=255)
-    picture_path = models.ImageField()
+    picture = models.ImageField()
     status = models.CharField(max_length=255, choices=STATUS, default=ON_HOLD)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, blank=True)
     history = HistoricalRecords()
@@ -33,6 +33,10 @@ class Book(models.Model):
         return f"{self.title}"
 
 class Shelf(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['row', 'col'], name="It's a coordinate")
+        ]
     ROW = [
         (1, 'Row 1'),
         (2, 'Row 2'),
@@ -47,3 +51,4 @@ class Shelf(models.Model):
     col = models.IntegerField(choices=COL)
     current_book = models.ForeignKey(Book, on_delete=models.CASCADE)
     shelf_status = models.BooleanField(default=False)
+

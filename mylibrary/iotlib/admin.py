@@ -9,7 +9,6 @@ from .models import Book, Shelf
 # Register views here
 
 class BookAdmin(ModelAdmin):
-    # fields = ('title', ('author', 'publisher'), 'picture_path', 'language', 'owner', 'status')
     fieldsets = (
         (
             'Book Information', {
@@ -25,7 +24,7 @@ class BookAdmin(ModelAdmin):
 
     search_fields = ['title', 'author']
 
-    list_display = ('title', 'author', 'publisher', 'language', 'owner', 'registered_date', 'modified_date', 'status')
+    list_display = ('title', 'author', 'publisher', 'language', 'owner', 'picture', 'registered_date', 'modified_date', 'status')
 
     list_filter = ('author', 'publisher', 'language', 'status')
 

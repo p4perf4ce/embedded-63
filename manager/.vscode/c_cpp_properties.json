@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "C:\\Users\\Amrest Chinkamol\\Documents\\ArduinoData\\packages\\esp32\\tools\\**",
+                "C:\\Users\\Amrest Chinkamol\\Documents\\Arduino\\libraries\\**",
+                "C:\\Program Files\\WindowsApps\\ArduinoLLC.ArduinoIDE_1.8.42.0_x86__mdqgnx93n4wtt\\libraries\\**",
+                "C:\\Users\\Amrest Chinkamol\\Documents\\ArduinoData\\packages\\esp32\\hardware\\esp32\\1.0.5\\**"
+            ],
+            "forcedInclude": [],
+            "defines": [
+                "USBCON"
+            ],
+            "intelliSenseMode": "windows-msvc-x64",
+            "cStandard": "c17",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}
