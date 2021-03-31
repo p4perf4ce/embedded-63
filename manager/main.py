@@ -1,9 +1,12 @@
 # Import
-from urequests import request
+import micropython
+import gc
+from urequests import request, put
 import ujson
 import network
 import uasyncio as asyncio
 import esp32
+import sys
 from machine import I2C, Pin
 
 # End Import
@@ -11,19 +14,18 @@ from machine import I2C, Pin
 # Global Vars
 NETWORK_CONNECTIVITY = False
 I2C_DEVICES_ADDR = [0x50, 0x68, 0x7f]
-I2C_DATA_BROADCAST = {row: {col: "n/a" for col in range(0, 3)} for row in I2C_DEVICES_ADDR}
-BOOK_STATUS = {row: {col: 0 for col in range(0, 3)} for row in range(0, 3)}
+I2C_DATA_BROADCAST = {row: {col: "n/a" for col in range(1, 4)} for row in I2C_DEVICES_ADDR}
+BOOK_STATUS = {row: {col: 0 for col in range(1, 4)} for row in range(1, 4)}
 GET = "GET"
-POST = "POST"
-PUT = "PUT"
-AUTH_HEADER = "Authentication Token: pifrq3iofjewkfwefoiwefKUYPRAYUT"
+
+AUTH_HEADER = {"Authorization": "Token c0d3ad98c5f072042023198171c76bb56f565bd2", "Content-Type": "application/json"}
 
 # End Global Flag
 
 class NetworkManager:
     MODE = network.STA_IF
     class WiFiMeta:
-        SSID = "HPCNC"
+        SSID = "HPCNC801"
         PASSWORD = "1q2w3e4r"
     def __init__(self, event_loop):
         print("SET UP CONFIGURATION ...")
@@ -67,47 +69,45 @@ class Broadcaster:
 
     def __init__(self, event_loop):
         print("Initializing I2C Master")
-        self.COMM = I2C(scl=Pin(self.I2C_SCL_PIN, Pin.PULL_UP), sda=Pin(self.I2C_SDA_PIN, Pin.PULL_UP))
+        self.COMM = I2C(scl=Pin(self.I2C_SCL_PIN), sda=Pin(self.I2C_SDA_PIN))
         print("Master Initialized ...")
         self.event_loop = event_loop
         print("Performing Scan ...")
         scan_result = self.COMM.scan()
         print("Available channel:", scan_result)
 
-    async def send_data(self, addr: int, data, retries: int = 3):
-        acks = None
-        try:
-            acks = self.COMM.writeto(addr, data)
-            await asyncio.sleep_ms(500)  # I2C Delay
-        except OSError as e:
-            if retries > 0:
-                print("I2C Error while sending data ...")
-                retries -= 1
-            else:
-                raise e
-        return acks
+    def formatter(self, addr, col, data):
+        formaddr = addr << 1
+        data = "{}|{}|{}".format(formaddr, col, data)
+        return data
 
-    async def i2c_status(self):
-        if len(self.COMM.scan()) > 0:
-            print("OK")
-            return True
-        else: return False
+    async def send_data(self, addr: int, row_data, retries: int = 3):
+        acks = None
+        for col, data in row_data.items():
+            try:
+                if not isinstance(data, dict): continue
+                to_send = self.formatter(addr, col, data)
+                acks = self.COMM.writeto(addr, to_send)
+                await asyncio.sleep_ms(500)  # I2C Delay
+            except OSError as e:
+                if retries > 0:
+                    print("I2C Error while sending data ...")
+                    retries -= 1
+                else:
+                    raise e
+            return acks
     
     async def broadcast(self, addresses: list, datum: dict, tolerate=True):
         """
         Addresses `addresses` of devices should be static and all data in `datum` are dynamically changed by other task.
         """
-        # BLOCK
-        while not await self.i2c_status():
-            print("I2C Channel is currently down")
-            await asyncio.sleep(1)
-        # END BLOCK
         for device_index, device_address in enumerate(addresses):
             try: acks = await self.send_data(device_address, datum[device_address]) # NOTE: datum[device_address] need transformation first
             except OSError as e:
                 if not tolerate: raise e
-            await asyncio.sleep_ms(500)  # I2C Delay
-    
+            await asyncio.sleep_ms(1000)  # I2C Delay
+        await asyncio.sleep(5)
+
     def start(self):
         global I2C_DEVICES_ADDR
         global I2C_DATA_BROADCAST
@@ -117,9 +117,9 @@ class Broadcaster:
 
 class ServerCommunicator:
     class Meta:
-        FETCH_URL = r"http://158.108.38.149:8000/shelf-info"
-        UPDATE_URL = r"http://158.108.38.149:8000/shelf-update"
-        HEARTBEAT_URL = r"http://158.108.38.149:8000/heart-beat"
+        FETCH_URL = r"http://158.108.38.149:8000/shelf-info/"
+        UPDATE_URL = r"http://158.108.38.149:8000/shelf-update/"
+        HEARTBEAT_URL = r"http://158.108.38.149:8000/heart-beat/"
     
     def __init__(self, event_loop):
         print("Initiating Server Communication ...")
@@ -131,44 +131,59 @@ class ServerCommunicator:
             datum = data.json()
             for data in datum:
                 # Update book name for broadcasting
-                I2C_DATA_BROADCAST[I2C_DEVICES_ADDR[data['row']]][data['col']] = data['current_book']
+                I2C_DATA_BROADCAST[I2C_DEVICES_ADDR[data['row'] - 1]][data['col']] = data['current_book']['title']
         else:
             print("Unable to fetch data", data.status_code, data.reason)
 
     def send_serializer(self, data):
-        pass        
+        to_send = []
+        for row, row_data in data.items():
+            for col, status in row_data.items():
+                temp = {"row": row, "col": col, "shelf_status": status}
+                to_send.append(temp)
+        return to_send
 
-    async def fetch_data(self, timeout=10):
+    async def fetch_data(self):
         global GET
         global I2C_DATA_BROADCAST
         while True:
+            r = None
             try:
-                r = request(GET, self.Meta.FETCH_URL, timeout=timeout)
+                r = request(GET, self.Meta.FETCH_URL)
                 self.fetch_serializer(r)
             except OSError as e:
                 print("Error while requesting data", e)
+            except Exception as e:
+                print("Other exception caughted while requesting ", e)
             finally:
-                r.close()
-            await asyncio.sleep(3)
+                if not r is None: r.close()
+            print("Current Table:")
+            print(I2C_DATA_BROADCAST)
+            await asyncio.sleep(15)
     
-    async def send_data(self, timeout=10):
-        global PUT
+    async def send_data(self):
         global BOOK_STATUS
         while True:
             to_send = BOOK_STATUS.copy()
             to_send = self.send_serializer(to_send)
+            r = None
             try:
-                r = request(PUT, self.Meta.UPDATE_URL, json=to_send, headers=AUTH_HEADER)
-            except OSError:
-                pass
+                gc.collect()
+                r = put(url=self.Meta.UPDATE_URL, json=to_send, headers=AUTH_HEADER)
+                if r.status_code != 200:
+                    raise Exception("Failed", r.status_code, r.reason, r.text)
+            except OSError as e:
+                print("Error while sending data ", e)
+            except Exception as e:
+                print("Other exception caughted while sending", e)
             finally:
-                r.close()
-            await asyncio.sleep(3)
+                if not r is None: r.close()
+            await asyncio.sleep(15)
 
     def start(self):
         print("Starting Communication Coroutines")
-        self.event_loop.create_task(self.fetch_data)
-        self.event_loop.create_task(self.send_data)
+        self.event_loop.create_task(self.fetch_data())
+        self.event_loop.create_task(self.send_data())
 
 
 # END TASK CLASS
@@ -186,6 +201,8 @@ def diag_function(func, funcname):
 
 async def main():
     print("System Awake")
+    print("Memory")
+    print(micropython.mem_info())
     print("Running Self-Check")
     passed = 0
     passed += diag_function(esp32.hall_sensor, 'Hall sensor')
@@ -194,6 +211,8 @@ async def main():
     print("Basic function passed", passed, "/", 3)
     print("Global Variables")
     print("NETWORK_CONNECTIVITY", NETWORK_CONNECTIVITY)
+    print("Devices List:")
+    print(I2C_DATA_BROADCAST)
     event_loop = asyncio.get_event_loop()
     print("Starting Network Manager ...")
     networkManager = NetworkManager(event_loop=event_loop)
